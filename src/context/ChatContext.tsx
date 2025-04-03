@@ -1,4 +1,5 @@
 
+
 import React, { createContext, useContext, useState, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { Message, MessageRole, ChatState, ImageAttachment } from "@/types/chat";
@@ -32,6 +33,42 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return newMessage;
   }, []);
 
+  const analyzePromptIntent = useCallback((prompt: string) => {
+    // Improved intent detection for various user inputs
+    const lowercasePrompt = prompt.toLowerCase();
+    
+    if (
+      lowercasePrompt.includes("generate") || 
+      lowercasePrompt.includes("create") || 
+      lowercasePrompt.includes("make") || 
+      lowercasePrompt.includes("draw") ||
+      lowercasePrompt.includes("show me") ||
+      lowercasePrompt.includes("visualize") ||
+      lowercasePrompt.includes("imagine") ||
+      lowercasePrompt.includes("picture of") ||
+      lowercasePrompt.includes("image of")
+    ) {
+      return "image_generation";
+    }
+    
+    if (
+      lowercasePrompt.includes("what is") ||
+      lowercasePrompt.includes("how to") ||
+      lowercasePrompt.includes("explain") ||
+      lowercasePrompt.includes("describe") ||
+      lowercasePrompt.includes("tell me about") ||
+      lowercasePrompt.startsWith("why") ||
+      lowercasePrompt.startsWith("when") ||
+      lowercasePrompt.startsWith("who") ||
+      lowercasePrompt.startsWith("how")
+    ) {
+      return "knowledge_query";
+    }
+    
+    // Default to conversation if no specific intent is detected
+    return "conversation";
+  }, []);
+
   const sendMessage = useCallback(async (content: string, imageFile?: File) => {
     try {
       setIsLoading(true);
@@ -52,38 +89,53 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           imageAttachment.caption = caption;
         } catch (error) {
           console.error("Error getting image caption:", error);
+          // Still proceed with the conversation even if caption fails
         }
       }
       
       // Add user message
       addMessage("user", content, imageAttachment);
       
-      // Determine what type of response to generate
+      // Determine what type of response to generate based on improved intent analysis
       let responseContent = "";
       let responseImage: ImageAttachment | undefined;
       
-      if (content.toLowerCase().includes("generate") || 
-          content.toLowerCase().includes("create") || 
-          content.toLowerCase().includes("make") || 
-          content.toLowerCase().includes("draw")) {
+      const promptIntent = analyzePromptIntent(content);
+      
+      if (promptIntent === "image_generation") {
         // Generate image
         try {
           const generatedImage = await huggingFaceService.generateImage(content);
           responseImage = { url: generatedImage.url };
-          responseContent = "I've generated this image based on your request.";
+          
+          // Generate a more descriptive and conversational response about the image
+          responseContent = `I've created this image based on your request: "${content}". What do you think?`;
         } catch (error) {
-          responseContent = "I couldn't generate an image based on your request. Please try again with a different prompt.";
+          responseContent = "I tried to generate an image for you, but encountered a technical issue. Could you try rephrasing your request or asking for something else?";
         }
       } else {
-        // Generate text response
-        let prompt = content;
+        // Prepare prompt with context from previous messages for better conversation flow
+        let promptWithContext = content;
         
         // If there's an image, include its caption in the prompt
         if (imageAttachment?.caption) {
-          prompt = `User uploaded an image that shows: "${imageAttachment.caption}". Their message: "${content}"`;
+          promptWithContext = `The user has shared an image that shows: "${imageAttachment.caption}". They asked: "${content}"`;
         }
         
-        responseContent = await huggingFaceService.generateTextResponse(prompt);
+        // Include previous messages for context if available (last 2-3 messages)
+        if (messages.length > 0) {
+          const recentMessages = messages.slice(-3);
+          const contextPrefix = "Based on our conversation so far, where: ";
+          
+          const conversationContext = recentMessages.map(msg => 
+            `${msg.role === 'user' ? 'User' : 'Assistant'} said: "${msg.content}"`
+          ).join(". ");
+          
+          promptWithContext = `${contextPrefix}${conversationContext}. Now the user asks: "${content}"`;
+        }
+        
+        // Generate conversational response
+        responseContent = await huggingFaceService.generateTextResponse(promptWithContext);
       }
       
       // Add AI response
@@ -95,7 +147,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
       setIsProcessing(false);
     }
-  }, [addMessage]);
+  }, [addMessage, analyzePromptIntent, messages]);
 
   const clearChat = useCallback(() => {
     setMessages([]);
@@ -139,4 +191,4 @@ export const useChat = (): ChatContextType => {
     throw new Error("useChat must be used within a ChatProvider");
   }
   return context;
-};
+}
