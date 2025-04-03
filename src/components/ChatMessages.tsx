@@ -102,7 +102,7 @@ const ChatMessages: React.FC = () => {
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
             <div className="bg-muted/30 p-3 rounded-md">
-              "Can you explain how neural networks work?"
+              "Can you visualize a puppy in a hat"
             </div>
             <div className="bg-muted/30 p-3 rounded-md">
               "Generate a futuristic cityscape at sunset"
@@ -111,7 +111,7 @@ const ChatMessages: React.FC = () => {
               "What can you tell me about this image?" (with upload)
             </div>
             <div className="bg-muted/30 p-3 rounded-md">
-              "What are the latest advancements in AI?"
+              "Can you create a beautiful scenario?"
             </div>
           </div>
         </div>
