@@ -23,6 +23,8 @@ export interface ImageCaptionResponse {
 class HuggingFaceService {
   private apiKey: string;
   private baseUrl = "https://api-inference.huggingface.co/models";
+  private conversationContext: string[] = [];
+  private maxContextLength = 5;
 
   constructor() {
     this.apiKey = import.meta.env.VITE_HUGGINGFACE_API_KEY || "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";
@@ -79,10 +81,13 @@ class HuggingFaceService {
     return prompt;
   }
 
-  // Generate text response using FLAN-T5
+  // Generate text response using FLAN-T5 with NLP enhancements
   async generateTextResponse(prompt: string): Promise<string> {
     try {
-      // Format prompt to get better conversational results
+      // Add to conversation context for maintaining continuous flow
+      this.updateConversationContext(prompt);
+      
+      // Format prompt to get better conversational results with context
       const formattedPrompt = this.formatConversationalPrompt(prompt);
       
       const response = await fetch(`${this.baseUrl}/${AVAILABLE_MODELS.TEXT_UNDERSTANDING}`, {
@@ -95,8 +100,10 @@ class HuggingFaceService {
           inputs: formattedPrompt,
           parameters: {
             max_length: 500,
-            temperature: 0.7, // Add some creativity but not too much
-            top_p: 0.9,
+            temperature: 0.75, // More dynamic responses
+            top_p: 0.92, // Diverse but relevant responses
+            top_k: 50, // Consider more token options for better flow
+            repetition_penalty: 1.2, // Avoid repetitive patterns
           }
         }),
       });
@@ -111,7 +118,10 @@ class HuggingFaceService {
       let text = Array.isArray(data) ? data[0].generated_text : data.generated_text;
       
       // Post-process the response for better conversation quality
-      text = this.postProcessResponse(text);
+      text = this.postProcessResponse(text, prompt);
+      
+      // Add the response to conversation context
+      this.updateConversationContext(text, false);
       
       return text;
     } catch (error) {
@@ -121,25 +131,105 @@ class HuggingFaceService {
     }
   }
 
-  // Helper method for formatting prompts
+  // Maintain conversation context for better flow
+  private updateConversationContext(text: string, isUser: boolean = true) {
+    this.conversationContext.push(`${isUser ? "User" : "Assistant"}: ${text}`);
+    
+    // Keep only the last N messages for context
+    if (this.conversationContext.length > this.maxContextLength) {
+      this.conversationContext = this.conversationContext.slice(-this.maxContextLength);
+    }
+  }
+
+  // Helper method for formatting prompts with NLP techniques
   private formatConversationalPrompt(prompt: string): string {
-    // For FLAN-T5, adding instruction prefix helps guide the model
-    if (!prompt.toLowerCase().startsWith("question:") && 
-        !prompt.toLowerCase().startsWith("respond to")) {
-      prompt = `Respond conversationally as a friendly AI assistant: ${prompt}`;
+    let formattedPrompt = prompt;
+    
+    // If we have context, include it in the prompt
+    if (this.conversationContext.length > 0) {
+      const context = this.conversationContext.join("\n");
+      formattedPrompt = `Continue this conversation naturally and conversationally as a friendly AI assistant.\n\nConversation history:\n${context}\n\nNow respond to the last message in a natural, helpful, and conversational way.`;
+    } else {
+      // For standalone prompts
+      formattedPrompt = `Respond as a friendly AI assistant in a natural conversational tone to: ${prompt}`;
     }
     
-    return prompt;
+    // Apply NLP enhancements to detect language style
+    if (this.detectInformalLanguage(prompt)) {
+      formattedPrompt += " Keep your response casual and friendly.";
+    }
+    
+    if (this.detectEmotionalContent(prompt)) {
+      formattedPrompt += " Show empathy in your response.";
+    }
+    
+    if (this.detectQuestionType(prompt) === "open_ended") {
+      formattedPrompt += " Provide a thoughtful and detailed response.";
+    } else if (this.detectQuestionType(prompt) === "factual") {
+      formattedPrompt += " Provide a concise, factual answer.";
+    }
+    
+    return formattedPrompt;
   }
   
-  // Post-process response text
-  private postProcessResponse(text: string): string {
-    // Remove any "Assistant:" or similar prefixes
+  // NLP helper for detecting informal language
+  private detectInformalLanguage(text: string): boolean {
+    const informalMarkers = ['hey', 'hi', 'hello', 'lol', 'haha', 'cool', 'awesome', 'yeah', 'yep', 'nope'];
+    return informalMarkers.some(marker => text.toLowerCase().includes(marker));
+  }
+  
+  // NLP helper for detecting emotional content
+  private detectEmotionalContent(text: string): boolean {
+    const emotionalMarkers = ['feel', 'happy', 'sad', 'angry', 'upset', 'excited', 'worried', 'anxious', 'love', 'hate'];
+    return emotionalMarkers.some(marker => text.toLowerCase().includes(marker));
+  }
+  
+  // NLP helper for classifying question types
+  private detectQuestionType(text: string): 'open_ended' | 'factual' | 'none' {
+    // Check if it's a question
+    if (!text.includes('?')) return 'none';
+    
+    // Detect open-ended questions
+    const openEndedMarkers = ['why', 'how', 'what do you think', 'opinion', 'feel about'];
+    if (openEndedMarkers.some(marker => text.toLowerCase().includes(marker))) {
+      return 'open_ended';
+    }
+    
+    // Default to factual for other question types
+    return 'factual';
+  }
+  
+  // Post-process response text with NLP enhancements
+  private postProcessResponse(text: string, originalPrompt: string): string {
+    // Remove any assistant/AI prefixes
     text = text.replace(/^(assistant|ai|bot):\s*/i, "");
     
-    // If the response is too short, add a follow-up question
-    if (text.length < 50 && !text.includes("?")) {
-      text += " Is there anything else you'd like to know about this?";
+    // Ensure text has proper sentence structure
+    if (!text.match(/[.!?]$/)) {
+      text += ".";
+    }
+    
+    // Make sure first letter is capitalized
+    if (text.length > 0) {
+      text = text.charAt(0).toUpperCase() + text.slice(1);
+    }
+    
+    // Improve response formatting
+    text = text.replace(/\n{3,}/g, "\n\n"); // Remove excessive line breaks
+    
+    // Add conversation continuity markers for short responses
+    if (text.length < 50 && this.detectQuestionType(originalPrompt) !== 'factual') {
+      // Check if the text already ends with a question
+      if (!text.endsWith("?")) {
+        // Add a follow-up question based on the original prompt
+        if (this.detectEmotionalContent(originalPrompt)) {
+          text += " How do you feel about this?";
+        } else if (originalPrompt.toLowerCase().includes("you")) {
+          text += " Is there anything specific you'd like to know more about?";
+        } else {
+          text += " Would you like to know more about this topic?";
+        }
+      }
     }
     
     return text;

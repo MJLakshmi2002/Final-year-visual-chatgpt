@@ -1,5 +1,3 @@
-
-
 import React, { createContext, useContext, useState, useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { Message, MessageRole, ChatState, ImageAttachment } from "@/types/chat";
@@ -33,36 +31,62 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return newMessage;
   }, []);
 
+  // Enhanced NLP-based intent detection with more nuanced conversation understanding
   const analyzePromptIntent = useCallback((prompt: string) => {
-    // Improved intent detection for various user inputs
     const lowercasePrompt = prompt.toLowerCase();
     
-    if (
-      lowercasePrompt.includes("generate") || 
-      lowercasePrompt.includes("create") || 
-      lowercasePrompt.includes("make") || 
-      lowercasePrompt.includes("draw") ||
-      lowercasePrompt.includes("show me") ||
-      lowercasePrompt.includes("visualize") ||
-      lowercasePrompt.includes("imagine") ||
-      lowercasePrompt.includes("picture of") ||
-      lowercasePrompt.includes("image of")
-    ) {
-      return "image_generation";
+    // Image generation intent markers
+    const imageGenerationKeywords = [
+      'generate', 'create', 'make', 'draw', 'show me', 'visualize',
+      'imagine', 'picture', 'image of', 'illustration', 'design',
+      'render', 'depict', 'portray'
+    ];
+    
+    // Knowledge query intent markers
+    const knowledgeQueryKeywords = [
+      'what is', 'how to', 'explain', 'describe', 'tell me about',
+      'why', 'when', 'who', 'where', 'which', 'can you explain',
+      'define', 'meaning of', 'difference between', 'compare', 'analyze'
+    ];
+    
+    // Conversational intent markers
+    const conversationalKeywords = [
+      'hello', 'hi', 'hey', 'how are you', 'what do you think',
+      'do you', 'can you', 'would you', 'opinion', 'feel', 'believe',
+      'thanks', 'thank you', 'appreciate', 'nice', 'good', 'great',
+      'joke', 'story', 'chat', 'talk', 'tell me a', 'share'
+    ];
+
+    // Check for image generation intent
+    for (const keyword of imageGenerationKeywords) {
+      if (lowercasePrompt.includes(keyword)) {
+        return "image_generation";
+      }
     }
     
-    if (
-      lowercasePrompt.includes("what is") ||
-      lowercasePrompt.includes("how to") ||
-      lowercasePrompt.includes("explain") ||
-      lowercasePrompt.includes("describe") ||
-      lowercasePrompt.includes("tell me about") ||
-      lowercasePrompt.startsWith("why") ||
-      lowercasePrompt.startsWith("when") ||
-      lowercasePrompt.startsWith("who") ||
-      lowercasePrompt.startsWith("how")
-    ) {
+    // Check for knowledge query intent
+    for (const keyword of knowledgeQueryKeywords) {
+      if (lowercasePrompt.includes(keyword) || 
+          lowercasePrompt.startsWith(keyword.split(' ')[0] + ' ')) {
+        return "knowledge_query";
+      }
+    }
+    
+    // Check for conversational intent
+    for (const keyword of conversationalKeywords) {
+      if (lowercasePrompt.includes(keyword) || 
+          lowercasePrompt.startsWith(keyword)) {
+        return "conversation";
+      }
+    }
+    
+    // Advanced sentence structure analysis
+    if (lowercasePrompt.endsWith('?')) {
       return "knowledge_query";
+    }
+
+    if (lowercasePrompt.length < 10) {
+      return "conversation";
     }
     
     // Default to conversation if no specific intent is detected
@@ -191,4 +215,4 @@ export const useChat = (): ChatContextType => {
     throw new Error("useChat must be used within a ChatProvider");
   }
   return context;
-}
+};
