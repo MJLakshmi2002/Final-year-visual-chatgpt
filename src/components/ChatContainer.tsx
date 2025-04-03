@@ -1,4 +1,3 @@
-
 import React from "react";
 import ChatHeader from "./ChatHeader";
 import ChatMessages from "./ChatMessages";
