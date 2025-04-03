@@ -4,7 +4,8 @@ import { toast } from "sonner";
 export const AVAILABLE_MODELS = {
   TEXT_TO_IMAGE: "stabilityai/stable-diffusion-xl-base-1.0",
   IMAGE_UNDERSTANDING: "Salesforce/blip-image-captioning-large",
-  TEXT_UNDERSTANDING: "google/flan-t5-xl", // Upgraded from large to xl for better understanding
+  TEXT_UNDERSTANDING: "google/flan-t5-base",
+  TEXT_TO_TEXT: "google/flan-t5-base",
 };
 
 // Define types
@@ -84,10 +85,10 @@ class HuggingFaceService {
   // Generate text response using FLAN-T5 with NLP enhancements
   async generateTextResponse(prompt: string): Promise<string> {
     try {
-      // Add to conversation context for maintaining continuous flow
+      // Add user prompt to conversation context
       this.updateConversationContext(prompt);
-      
-      // Format prompt to get better conversational results with context
+
+      // Use the proper conversation formatting for better responses
       const formattedPrompt = this.formatConversationalPrompt(prompt);
       
       const response = await fetch(`${this.baseUrl}/${AVAILABLE_MODELS.TEXT_UNDERSTANDING}`, {
@@ -99,11 +100,11 @@ class HuggingFaceService {
         body: JSON.stringify({ 
           inputs: formattedPrompt,
           parameters: {
-            max_length: 500,
-            temperature: 0.75, // More dynamic responses
-            top_p: 0.92, // Diverse but relevant responses
-            top_k: 50, // Consider more token options for better flow
-            repetition_penalty: 1.2, // Avoid repetitive patterns
+            max_length: 512,
+            temperature: 0.7,
+            top_p: 0.95,
+            do_sample: true,
+            return_full_text: false // Prevent input echo
           }
         }),
       });
@@ -115,7 +116,17 @@ class HuggingFaceService {
       }
 
       const data = await response.json();
-      let text = Array.isArray(data) ? data[0].generated_text : data.generated_text;
+      
+      // Handle different response formats (array or object)
+      let text: string;
+      if (Array.isArray(data)) {
+        text = data[0]?.generated_text || "";
+      } else if (typeof data === 'object' && data.generated_text) {
+        text = data.generated_text;
+      } else {
+        // As a fallback for unexpected formats
+        text = String(data).trim();
+      }
       
       // Post-process the response for better conversation quality
       text = this.postProcessResponse(text, prompt);
@@ -141,20 +152,23 @@ class HuggingFaceService {
     }
   }
 
-  // Helper method for formatting prompts with NLP techniques
+  // Helper method for formatting prompts with NLP techniques - now properly used
   private formatConversationalPrompt(prompt: string): string {
-    let formattedPrompt = prompt;
+    // FLAN-T5 responds well to task-oriented prompts
+    let formattedPrompt = "";
     
     // If we have context, include it in the prompt
-    if (this.conversationContext.length > 0) {
-      const context = this.conversationContext.join("\n");
-      formattedPrompt = `Continue this conversation naturally and conversationally as a friendly AI assistant.\n\nConversation history:\n${context}\n\nNow respond to the last message in a natural, helpful, and conversational way.`;
+    if (this.conversationContext.length > 1) { // If there's more than just the current prompt
+      const contextHistory = this.conversationContext.slice(0, -1).join("\n"); // Exclude current prompt
+      
+      // Format for T5 with context
+      formattedPrompt = `Given this conversation history:\n${contextHistory}\n\nRespond to the user's request: ${prompt}`;
     } else {
-      // For standalone prompts
-      formattedPrompt = `Respond as a friendly AI assistant in a natural conversational tone to: ${prompt}`;
+      // For standalone prompts, use task-specific formatting for T5
+      formattedPrompt = `Respond to this request: ${prompt}`;
     }
     
-    // Apply NLP enhancements to detect language style
+    // Apply NLP enhancements based on prompt analysis
     if (this.detectInformalLanguage(prompt)) {
       formattedPrompt += " Keep your response casual and friendly.";
     }
@@ -163,9 +177,10 @@ class HuggingFaceService {
       formattedPrompt += " Show empathy in your response.";
     }
     
-    if (this.detectQuestionType(prompt) === "open_ended") {
+    const questionType = this.detectQuestionType(prompt);
+    if (questionType === "open_ended") {
       formattedPrompt += " Provide a thoughtful and detailed response.";
-    } else if (this.detectQuestionType(prompt) === "factual") {
+    } else if (questionType === "factual") {
       formattedPrompt += " Provide a concise, factual answer.";
     }
     
@@ -201,8 +216,21 @@ class HuggingFaceService {
   
   // Post-process response text with NLP enhancements
   private postProcessResponse(text: string, originalPrompt: string): string {
-    // Remove any assistant/AI prefixes
+    // Catch empty responses
+    if (!text || text.trim() === "") {
+      return "I'm not sure how to respond to that. Could you please rephrase your question?";
+    }
+    
+    // Remove any assistant/AI prefixes that might have been generated
     text = text.replace(/^(assistant|ai|bot):\s*/i, "");
+    
+    // Remove any echoed user query that might appear in the response
+    const promptWords = originalPrompt.split(/\s+/).filter(word => word.length > 4);
+    for (const word of promptWords) {
+      // Check if response starts with a phrase containing the prompt
+      const startPattern = new RegExp(`^(.*?${word}.*?:)`, 'i');
+      text = text.replace(startPattern, '');
+    }
     
     // Ensure text has proper sentence structure
     if (!text.match(/[.!?]$/)) {
