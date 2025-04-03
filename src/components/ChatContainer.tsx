@@ -10,7 +10,9 @@ const ChatContainer: React.FC = () => {
     <ChatProvider>
       <div className="flex flex-col h-full max-w-4xl mx-auto shadow-lg border rounded-lg overflow-hidden">
         <ChatHeader />
-        <ChatMessages />
+        <div className="flex-1 overflow-hidden relative">
+          <ChatMessages />
+        </div>
         <ChatInput />
       </div>
     </ChatProvider>

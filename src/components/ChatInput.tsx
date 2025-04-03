@@ -1,5 +1,4 @@
-
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useChat } from "@/context/ChatContext";
@@ -12,6 +11,8 @@ const ChatInput: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+  const inputContainerRef = useRef<HTMLDivElement>(null);
   
   const promptSuggestions = [
     "Generate a fantasy landscape with mountains and a castle",
@@ -19,7 +20,40 @@ const ChatInput: React.FC = () => {
     "Explain quantum computing in simple terms",
     "Create an image of an astronaut riding a horse",
     "How does visual recognition technology work?",
+    "What's your opinion on climate change?",
+    "Tell me a joke about robots",
+    "How are you feeling today?",
+    "What makes a good conversation?",
+    "If you could travel anywhere, where would you go?"
   ];
+
+  // Handle click outside of suggestions to close them
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        suggestionsRef.current && 
+        !suggestionsRef.current.contains(event.target as Node) &&
+        !event.composedPath().some(el => 
+          (el as HTMLElement)?.classList?.contains('ideas-button')
+        )
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Maintain fixed height for suggestions container
+  useEffect(() => {
+    if (inputContainerRef.current) {
+      const height = inputContainerRef.current.offsetHeight;
+      inputContainerRef.current.style.minHeight = `${height}px`;
+    }
+  }, [prompt, selectedImage]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,9 +90,14 @@ const ChatInput: React.FC = () => {
     setPrompt(suggestion);
     setShowSuggestions(false);
   };
+  
+  const toggleSuggestions = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowSuggestions(!showSuggestions);
+  };
 
   return (
-    <div className="p-4 border-t bg-background">
+    <div className="p-4 border-t bg-background" ref={inputContainerRef}>
       {imagePreview && (
         <div className="relative inline-block mb-3">
           <img 
@@ -79,7 +118,10 @@ const ChatInput: React.FC = () => {
       )}
       
       {showSuggestions && (
-        <div className="mb-3 p-2 bg-muted/50 rounded-md">
+        <div 
+          ref={suggestionsRef} 
+          className="absolute bottom-full left-0 right-0 mb-2 p-3 bg-background border rounded-md shadow-lg max-h-[300px] overflow-y-auto z-10 mx-4"
+        >
           <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
             <Lightbulb className="w-4 h-4" />
             <span>Try asking these:</span>
@@ -98,7 +140,7 @@ const ChatInput: React.FC = () => {
         </div>
       )}
       
-      <form onSubmit={handleSubmit} className="flex gap-2">
+      <form onSubmit={handleSubmit} className="flex gap-2 relative">
         <Input
           type="file"
           onChange={handleImageSelect}
@@ -122,7 +164,6 @@ const ChatInput: React.FC = () => {
           <Input
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            onFocus={() => setShowSuggestions(true)}
             placeholder="Ask me anything or request an image generation..."
             className="min-w-0"
             disabled={isLoading}
@@ -132,8 +173,8 @@ const ChatInput: React.FC = () => {
               type="button"
               variant="ghost"
               size="sm"
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 h-7 text-muted-foreground"
-              onClick={() => setShowSuggestions(!showSuggestions)}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 h-7 text-muted-foreground ideas-button"
+              onClick={toggleSuggestions}
             >
               <Lightbulb className="w-4 h-4 mr-1" />
               <span className="text-xs">Ideas</span>
