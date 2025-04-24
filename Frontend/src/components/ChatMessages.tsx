@@ -75,7 +75,7 @@ const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.3 }}
-            className="mt-3"
+            className="mt-3 space-y-4"
           >
             <img
               src={message.image.url}
@@ -83,9 +83,47 @@ const ChatMessage: React.FC<{ message: Message }> = ({ message }) => {
               className="rounded-md max-w-full max-h-[400px] object-contain border shadow-sm hover:shadow-md transition-shadow"
             />
             {message.image.caption && (
-              <p className="text-sm text-muted-foreground mt-2 italic">
-                {message.image.caption}
-              </p>
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground italic">
+                  {message.image.caption}
+                </p>
+                {message.image.detailed_analysis && (
+                  <div className="bg-muted/30 p-4 rounded-lg space-y-3">
+                    <div>
+                      <h4 className="text-sm font-medium mb-1">Detailed Description</h4>
+                      <p className="text-sm text-muted-foreground">{message.image.detailed_analysis.detailed_caption}</p>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium mb-1">Scene Description</h4>
+                      <p className="text-sm text-muted-foreground">{message.image.detailed_analysis.scene_description}</p>
+                    </div>
+                    {message.image.detailed_analysis.objects.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium mb-1">Key Objects</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {message.image.detailed_analysis.objects.map((obj, i) => (
+                            <span key={i} className="px-2 py-1 bg-muted rounded-full text-xs">
+                              {obj}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {message.image.detailed_analysis.attributes.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium mb-1">Attributes</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {message.image.detailed_analysis.attributes.map((attr, i) => (
+                            <span key={i} className="px-2 py-1 bg-primary/10 text-primary rounded-full text-xs">
+                              {attr}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </motion.div>
         )}

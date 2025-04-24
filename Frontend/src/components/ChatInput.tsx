@@ -176,6 +176,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ mode = "chat" }) => {
           >
             <img 
               src={imagePreview} 
+              
               alt="Selected" 
               className="w-20 h-20 object-cover rounded-md border shadow-sm"
             />

@@ -72,7 +72,6 @@ class HuggingFaceService {
   // Generate text response using FLAN-T5 with NLP enhancements
   async generateTextResponse(prompt: string): Promise<string> {
     try {
-      this.updateConversationContext(prompt);
       const formattedPrompt = this.formatConversationalPrompt(prompt);
       
       const response = await fetch(`${this.baseUrl}/api/generate-text`, {
@@ -86,7 +85,24 @@ class HuggingFaceService {
       if (!response.ok) {
         const error = await response.json();
         console.error("Text generation error:", error);
-        throw new Error(error.error || "Failed to generate text response");
+        
+        // Handle specific error cases
+        if (response.status === 401) {
+          toast.error("API authentication failed. Please check API key configuration.");
+          throw new Error("API authentication failed");
+        }
+        
+        if (response.status === 503) {
+          toast.warning("Model is currently loading. Please try again in a moment.");
+          throw new Error("Model is loading");
+        }
+        
+        if (error.error) {
+          toast.error(error.error);
+          throw new Error(error.error);
+        }
+        
+        throw new Error("Failed to generate text response");
       }
 
       const data = await response.json();
@@ -96,50 +112,51 @@ class HuggingFaceService {
       return text;
     } catch (error) {
       console.error("Error generating text response:", error);
-      toast.error("Failed to generate text response. Please try again.");
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to generate text response. Please try again.");
+      }
       throw error;
     }
   }
   // Maintain conversation context for better flow
   private updateConversationContext(text: string, isUser: boolean = true) {
-    this.conversationContext.push(`${isUser ? "User" : "Assistant"}: ${text}`);
+    // Clean up the text before adding to context
+    const cleanedText = text.trim()
+      .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
+      .replace(/^(User:|Assistant:)\s*/i, ''); // Remove any existing prefixes
     
-    // Keep only the last N messages for context
+    // Add role prefix and cleaned text
+    this.conversationContext.push(`${isUser ? "User" : "Assistant"}: ${cleanedText}`);
+    
+    // Keep only the last N messages for context, but ensure we maintain conversation flow
     if (this.conversationContext.length > this.maxContextLength) {
-      this.conversationContext = this.conversationContext.slice(-this.maxContextLength);
+      // Keep the first message (for context) and the last N-1 messages
+      const firstMessage = this.conversationContext[0];
+      const recentMessages = this.conversationContext.slice(-(this.maxContextLength - 1));
+      this.conversationContext = [firstMessage, ...recentMessages];
     }
   }
 
   // Helper method for formatting prompts with NLP techniques - now properly used
   private formatConversationalPrompt(prompt: string): string {
-    // FLAN-T5 responds well to task-oriented prompts
     let formattedPrompt = "";
     
-    // If we have context, include it in the prompt
-    if (this.conversationContext.length > 1) { // If there's more than just the current prompt
-      const contextHistory = this.conversationContext.slice(0, -1).join("\n"); // Exclude current prompt
+    // If we have context, include it in the prompt but with better structure
+    if (this.conversationContext.length > 1) {
+      const contextHistory = this.conversationContext
+        .slice(-3) // Only use last 3 messages for more focused context
+        .join("\n");
       
-      // Format for T5 with context
-      formattedPrompt = `Given this conversation history:\n${contextHistory}\n\nRespond to the user's request: ${prompt}`;
+      formattedPrompt = `Given this conversation history:\n${contextHistory}\n\nRespond naturally and informatively to: ${prompt}`;
     } else {
-      // For standalone prompts, use task-specific formatting for T5
-      formattedPrompt = `Respond to this request: ${prompt}`;
+      formattedPrompt = `Respond naturally and informatively to: ${prompt}`;
     }
     
-    // Apply NLP enhancements based on prompt analysis
-    if (this.detectInformalLanguage(prompt)) {
-      formattedPrompt += " Keep your response casual and friendly.";
-    }
-    
-    if (this.detectEmotionalContent(prompt)) {
-      formattedPrompt += " Show empathy in your response.";
-    }
-    
-    const questionType = this.detectQuestionType(prompt);
-    if (questionType === "open_ended") {
-      formattedPrompt += " Provide a thoughtful and detailed response.";
-    } else if (questionType === "factual") {
-      formattedPrompt += " Provide a concise, factual answer.";
+    // Add task-specific guidance without being too prescriptive
+    if (prompt.toLowerCase().includes("explain") || prompt.toLowerCase().includes("description")) {
+      formattedPrompt += "\nProvide a clear explanation with examples where appropriate.";
     }
     
     return formattedPrompt;
@@ -180,15 +197,14 @@ class HuggingFaceService {
     }
     
     // Remove any assistant/AI prefixes that might have been generated
-    text = text.replace(/^(assistant|ai|bot):\s*/i, "");
+    text = text.replace(/^(assistant|ai|bot|1\.|2\.|3\.|4\.|5\.|6\.)\s*/gi, "");
+    text = text.replace(/^(make sure to:|based on this conversation:)/gi, "");
     
-    // Remove any echoed user query that might appear in the response
-    const promptWords = originalPrompt.split(/\s+/).filter(word => word.length > 4);
-    for (const word of promptWords) {
-      // Check if response starts with a phrase containing the prompt
-      const startPattern = new RegExp(`^(.*?${word}.*?:)`, 'i');
-      text = text.replace(startPattern, '');
-    }
+    // Remove any enumerated lists that might have been generated from the prompt
+    text = text.replace(/^\d+\.\s*(address|provide|be|break|use|explain)/gim, "");
+    
+    // Clean up any remaining instruction-like text
+    text = text.replace(/^(I will |Let me |Here's how to |First, |Next, )/gi, "");
     
     // Ensure text has proper sentence structure
     if (!text.match(/[.!?]$/)) {
@@ -202,21 +218,6 @@ class HuggingFaceService {
     
     // Improve response formatting
     text = text.replace(/\n{3,}/g, "\n\n"); // Remove excessive line breaks
-    
-    // Add conversation continuity markers for short responses
-    if (text.length < 50 && this.detectQuestionType(originalPrompt) !== 'factual') {
-      // Check if the text already ends with a question
-      if (!text.endsWith("?")) {
-        // Add a follow-up question based on the original prompt
-        if (this.detectEmotionalContent(originalPrompt)) {
-          text += " How do you feel about this?";
-        } else if (originalPrompt.toLowerCase().includes("you")) {
-          text += " Is there anything specific you'd like to know more about?";
-        } else {
-          text += " Would you like to know more about this topic?";
-        }
-      }
-    }
     
     return text;
   }

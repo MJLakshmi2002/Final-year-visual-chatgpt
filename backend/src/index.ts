@@ -37,6 +37,7 @@ const HF_API_KEY = process.env.HF_API_KEY || "";
 const MODELS = {
   TEXT_TO_IMAGE: "stabilityai/stable-diffusion-xl-base-1.0",
   IMAGE_UNDERSTANDING: "Salesforce/blip-image-captioning-large",
+  DETAILED_CAPTION: "microsoft/git-large-coco",  // More detailed image captioning
   TEXT_UNDERSTANDING: "google/flan-t5-base",
   TEXT_TO_TEXT: "google/flan-t5-base",
 };
@@ -60,6 +61,23 @@ interface HuggingFaceImageResponse {
 }
 
 interface HuggingFaceCaptionResponse {
+  generated_text: string;
+}
+
+interface DetailedCaptionResponse {
+  basic_caption: string;
+  detailed_caption: string;
+  objects: string[];
+  scene_description: string;
+  attributes: string[];
+}
+
+interface CombinedCaptionResponse {
+  simple_caption: string;
+  detailed_analysis: DetailedCaptionResponse;
+}
+
+interface HuggingFaceDetailedResponse {
   generated_text: string;
 }
 
@@ -125,14 +143,20 @@ const generateTextHandler: CustomRequestHandler = async (req, res, next) => {
         inputs: prompt,
         parameters: {
           temperature: 0.7,
-          max_new_tokens: 150,
+          max_new_tokens: 200,
           do_sample: true,
+          top_k: 40,
+          top_p: 0.9,
+          repetition_penalty: 1.2,
+          length_penalty: 1.0,
+          no_repeat_ngram_size: 3,
+          early_stopping: true
         },
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
       console.error("HuggingFace API error:", {
         status: response.status,
         statusText: response.statusText,
@@ -142,7 +166,7 @@ const generateTextHandler: CustomRequestHandler = async (req, res, next) => {
       // Check for specific error cases
       if (response.status === 401) {
         res.status(401).json({ 
-          error: "Invalid or expired API key",
+          error: "Invalid or expired API key. Please check your configuration.",
           details: errorData 
         });
         return;
@@ -150,8 +174,16 @@ const generateTextHandler: CustomRequestHandler = async (req, res, next) => {
       
       if (response.status === 503) {
         res.status(503).json({ 
-          error: "Model is currently loading",
+          error: "Model is currently loading. Please try again in a few moments.",
           details: errorData 
+        });
+        return;
+      }
+
+      if (response.status === 429) {
+        res.status(429).json({
+          error: "Rate limit exceeded. Please try again later.",
+          details: errorData
         });
         return;
       }
@@ -181,7 +213,7 @@ const generateTextHandler: CustomRequestHandler = async (req, res, next) => {
     console.error("Error in text generation handler:", err);
     res.status(500).json({ 
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error occurred"
+      details: err instanceof Error ? err.message : "Unknown error"
     });
   }
 };
@@ -268,7 +300,62 @@ const generateImageHandler: CustomRequestHandler = async (req, res, next) => {
 
 app.post("/api/generate-image", generateImageHandler);
 
-// Image captioning endpoint
+// Helper function to get detailed caption
+async function getDetailedImageAnalysis(imageBuffer: Buffer): Promise<DetailedCaptionResponse> {
+  // Get detailed caption
+  const detailedResponse = await fetch(`${HF_API_BASE_URL}/${MODELS.DETAILED_CAPTION}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${HF_API_KEY}`,
+      "Content-Type": "application/octet-stream",
+    },
+    body: imageBuffer,
+  });
+
+  if (!detailedResponse.ok) {
+    throw new Error('Failed to get detailed caption');
+  }
+
+  const detailedData = await detailedResponse.json() as HuggingFaceDetailedResponse[];
+
+  // Get scene understanding using Text-to-Text model
+  const scenePrompt = `Analyze this image caption and list key objects, attributes, and provide a detailed scene description: ${detailedData[0].generated_text}`;
+  const sceneResponse = await fetch(`${HF_API_BASE_URL}/${MODELS.TEXT_UNDERSTANDING}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${HF_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      inputs: scenePrompt,
+      parameters: {
+        max_new_tokens: 250,
+        temperature: 0.7,
+      },
+    }),
+  });
+
+  if (!sceneResponse.ok) {
+    throw new Error('Failed to get scene understanding');
+  }
+
+  const sceneData = await sceneResponse.json() as HuggingFaceDetailedResponse[];
+  const sceneText = sceneData[0].generated_text;
+
+  // Parse the scene text to extract objects and attributes
+  const objects = sceneText.match(/\b\w+\b/g)?.filter((word: string) => word.length > 3) || [];
+  const attributes = sceneText.match(/\b(color|size|shape|texture)\w*\b/gi) || [];
+
+  return {
+    basic_caption: detailedData[0].generated_text,
+    detailed_caption: sceneText,
+    objects,
+    scene_description: sceneText,
+    attributes,
+  };
+}
+
+// Updated image captioning endpoint
 const generateCaptionHandler: CustomRequestHandler = async (req, res, next) => {
   try {
     if (!req.file) {
@@ -279,7 +366,8 @@ const generateCaptionHandler: CustomRequestHandler = async (req, res, next) => {
     const imagePath = req.file.path;
     const imageBuffer = fs.readFileSync(imagePath);
     
-    const response = await fetch(`${HF_API_BASE_URL}/${MODELS.IMAGE_UNDERSTANDING}`, {
+    // Get simple caption (existing functionality)
+    const simpleResponse = await fetch(`${HF_API_BASE_URL}/${MODELS.IMAGE_UNDERSTANDING}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${HF_API_KEY}`,
@@ -288,18 +376,40 @@ const generateCaptionHandler: CustomRequestHandler = async (req, res, next) => {
       body: imageBuffer,
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
+    if (!simpleResponse.ok) {
+      const errorData = await simpleResponse.json();
       console.error("HuggingFace API error:", errorData);
-      res.status(response.status).json({ 
+      res.status(simpleResponse.status).json({ 
         error: "Error from HuggingFace API", 
         details: errorData 
       });
       return;
     }
 
-    const data = await response.json() as HuggingFaceCaptionResponse[];
-    res.json({ caption: data[0].generated_text });
+    const simpleData = await simpleResponse.json() as HuggingFaceCaptionResponse[];
+    
+    // Get detailed analysis
+    let detailedAnalysis: DetailedCaptionResponse | null = null;
+    try {
+      detailedAnalysis = await getDetailedImageAnalysis(imageBuffer);
+    } catch (error) {
+      console.error("Error getting detailed analysis:", error);
+      // Continue with simple caption if detailed analysis fails
+    }
+
+    // Combine results
+    const response: CombinedCaptionResponse = {
+      simple_caption: simpleData[0].generated_text,
+      detailed_analysis: detailedAnalysis || {
+        basic_caption: simpleData[0].generated_text,
+        detailed_caption: "",
+        objects: [],
+        scene_description: "",
+        attributes: [],
+      }
+    };
+
+    res.json(response);
     
     // Clean up the uploaded file
     fs.unlinkSync(imagePath);
