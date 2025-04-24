@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, forwardRef } from "react";
 import { Button } from "@/components/ui/button";
 import { useChat } from "@/context/ChatContext";
 import { Trash2, RefreshCw, Info, Settings, X, ArrowLeft } from "lucide-react";
@@ -25,10 +25,10 @@ interface ChatHeaderProps {
   mode?: ChatMode;
 }
 
-const InfoDialog: React.FC = () => (
+const InfoDialog = forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof Button>>((props, ref) => (
   <Dialog>
     <DialogTrigger asChild>
-      <Button variant="ghost" size="icon" className="w-9 h-9">
+      <Button variant="ghost" size="icon" className="w-9 h-9" ref={ref} {...props}>
         <Info className="w-4 h-4" />
       </Button>
     </DialogTrigger>
@@ -69,7 +69,9 @@ const InfoDialog: React.FC = () => (
       </div>
     </DialogContent>
   </Dialog>
-);
+));
+
+InfoDialog.displayName = 'InfoDialog';
 
 const ChatHeader: React.FC<ChatHeaderProps> = ({ mode = "chat" }) => {
   const { clearChat, regenerateResponse, isLoading, isProcessing, messages } = useChat();
