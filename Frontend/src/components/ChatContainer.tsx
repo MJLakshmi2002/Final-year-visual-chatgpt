@@ -13,7 +13,7 @@ interface ChatContainerProps {
 const ChatContainer: React.FC<ChatContainerProps> = ({ mode = "chat" }) => {
   return (
     <ChatProvider>
-      <div className="flex flex-col h-full max-w-4xl mx-auto shadow-lg border rounded-lg overflow-hidden">
+      <div className="flex flex-col h-screen w-full max-w-screen-2xl mx-auto shadow-lg border rounded-lg overflow-hidden">
         <ChatHeader mode={mode} />
         <div className="flex-1 overflow-y-auto relative">
           <ChatMessages mode={mode} />
