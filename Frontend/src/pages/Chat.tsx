@@ -20,7 +20,7 @@ const Chat = () => {
       <div className="flex-1 flex flex-col py-4 overflow-hidden">
         <ChatContainer mode="chat" />
       </div>
-      <footer className="text-center text-sm text-muted-foreground py-4">
+      <footer className="text-center text-sm text-muted-foreground py-2">
         <p>Visual ChatGPT - Powered by Hugging Face Models</p>
       </footer>
     </div>
